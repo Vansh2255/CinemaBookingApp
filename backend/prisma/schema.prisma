@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ USERS ============
+model User {
+  id           Int       @id @default(autoincrement())
+  name         String    @db.VarChar(100)
+  email        String    @unique @db.VarChar(100)
+  password     String    @db.VarChar(250)
+  role         String    @db.VarChar(100)
+  isEmailVerified Boolean @default(false) @map("is_email_verified")
+  emailVerificationTokenHash String? @unique @map("email_verification_token_hash") @db.Text
+  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
+  passwordResetTokenHash String? @unique @map("password_reset_token_hash") @db.Text
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  refreshTokens RefreshToken[]
+  reservations  Reservation[]
+
+  @@map("users")
+}
+
+// ============ AUTH ============
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  tokenHash String   @unique @map("token_hash") @db.Text
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ============ GENRES ============
+model Genre {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique @db.VarChar(50)
+  description String? @db.Text
+
+  movieGenres MovieGenre[]
+
+  @@map("genres")
+}
+
+// ============ MOVIES ============
+model Movie {
+  id          Int       @id @default(autoincrement())
+  title       String    @db.VarChar(250)
+  description String?   @db.Text
+  posterUrl   String?   @map("poster_url") @db.VarChar(500)
+  duration    Int?
+  language    String?   @db.VarChar(50)
+  releaseDate DateTime? @map("release_date") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  movieGenres MovieGenre[]
+  showtimes   Showtime[]
+
+  @@map("movies")
+}
+
+// ============ MOVIE <-> GENRE (many-to-many) ============
+model MovieGenre {
+  id      Int @id @default(autoincrement())
+  movieId Int @map("movie_id")
+  genreId Int @map("genre_id")
+
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  genre Genre @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@unique([movieId, genreId])
+  @@map("movie_genres")
+}
+
+// ============ THEATRES ============
+model Theatre {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(150)
+  location  String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  screens Screen[]
+
+  @@map("theatres")
+}
+
+// ============ SCREENS ============
+model Screen {
+  id         Int      @id @default(autoincrement())
+  theatreId  Int      @map("theatre_id")
+  name       String   @db.VarChar(100)
+  capacity   Int
+  screenType String   @default("2D") @map("screen_type") @db.VarChar(50)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  theatre   Theatre    @relation(fields: [theatreId], references: [id], onDelete: Cascade)
+  seats     Seat[]
+  showtimes Showtime[]
+
+  @@map("screens")
+}
+
+// ============ SEATS ============
+model Seat {
+  id         Int     @id @default(autoincrement())
+  screenId   Int     @map("screen_id")
+  seatNumber String  @map("seat_number") @db.VarChar(20)
+  seatType   String  @default("Regular") @map("seat_type") @db.VarChar(30)
+  isActive   Boolean @default(true) @map("is_active")
+
+  screen       Screen        @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@unique([screenId, seatNumber])
+  @@map("seats")
+}
+
+// ============ SHOWTIMES ============
+model Showtime {
+  id         Int      @id @default(autoincrement())
+  movieId    Int      @map("movie_id")
+  screenId   Int      @map("screen_id")
+  startTime  DateTime @map("start_time")
+  endTime    DateTime @map("end_time")
+  totalSeats Int      @map("total_seats")
+  prices     Decimal  @db.Decimal(10, 2)
+
+  movie        Movie         @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  screen       Screen        @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  reservations Reservation[]
+
+  @@map("showtimes")
+}
+
+// ============ RESERVATIONS ============
+model Reservation {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  showtimeId Int      @map("showtime_id")
+  seatId     Int      @map("seat_id")
+  status     String   @default("PENDING") @db.VarChar(20)
+  expiresAt  DateTime? @map("expires_at")
+  baseAmount Decimal? @map("base_amount") @db.Decimal(10, 2)
+  discountAmount Decimal? @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  finalAmount Decimal? @map("final_amount") @db.Decimal(10, 2)
+  couponId   Int?     @map("coupon_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  showtime Showtime @relation(fields: [showtimeId], references: [id], onDelete: Cascade)
+  seat     Seat     @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  payments Payment[]
+  coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  @@index([showtimeId, status])
+  @@index([status, expiresAt])
+  @@index([userId, status])
+  @@map("reservations")
+}
+
+model Coupon {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique @db.VarChar(50)
+  discountType    String    @map("discount_type") @db.VarChar(20)
+  discountValue   Decimal   @map("discount_value") @db.Decimal(10, 2)
+  minOrderAmount  Decimal?  @map("min_order_amount") @db.Decimal(10, 2)
+  maxDiscount     Decimal?  @map("max_discount") @db.Decimal(10, 2)
+  usageLimit      Int?      @map("usage_limit")
+  usageCount      Int       @default(0) @map("usage_count")
+  startsAt        DateTime  @default(now()) @map("starts_at")
+  expiresAt       DateTime  @map("expires_at")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  reservations Reservation[]
+
+  @@map("coupons")
+}
+
+// ============ PAYMENTS ============
+model Payment {
+  id                    Int      @id @default(autoincrement())
+  reservationId         Int      @map("reservation_id")
+  amount                Decimal  @db.Decimal(10, 2)
+  currency              String   @default("inr") @db.VarChar(10)
+  status                String   @default("PENDING") @db.VarChar(20)
+  stripePaymentIntentId String   @map("stripe_payment_intent_id") @db.VarChar(255)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  // 1 reservation = 1 payment (koi double payment nahi)
+  @@unique([reservationId])
+  @@map("payments")
+}

@@ -1,0 +1,102 @@
+# Shared environment — app aur dono workers ko same vars chahiye.
+# YAML anchor (&app-environment) se ek baar define karke sab jagah reuse karte hain
+# (DRY: duplication aur mismatch bugs se bachne ke liye).
+x-app-environment: &app-environment
+  PORT: 5000
+  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-movie_reservation}?schema=public
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET in .env}
+  JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?Set STRIPE_SECRET_KEY in .env}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?Set STRIPE_WEBHOOK_SECRET in .env}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+  MAIL_HOST: ${MAIL_HOST:-}
+  MAIL_PORT: ${MAIL_PORT:-587}
+  MAIL_USER: ${MAIL_USER:-}
+  MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+  RESERVATION_CLEANUP_INTERVAL_MS: ${RESERVATION_CLEANUP_INTERVAL_MS:-60000}
+  NODE_ENV: development
+  # Docker network ke andar service ka naam hi hostname hota hai
+  REDIS_URL: redis://redis:6379
+
+services:
+
+  postgres:
+    image: postgres:17
+    container_name: movie-postgres
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-movie_reservation}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: movie-redis
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis-data:/data
+
+  app:
+    build: .
+    container_name: movie-app
+
+    depends_on:
+      - postgres
+      - redis
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+    environment:
+      <<: *app-environment
+
+  # Email worker — booking/payment confirmation emails async bhejta hai
+  email-worker:
+    build: .
+    container_name: movie-email-worker
+
+    depends_on:
+      - postgres
+      - redis
+
+    environment:
+      <<: *app-environment
+
+    command: ["npm", "run", "worker"]
+    restart: unless-stopped
+
+  # Reservation cleanup worker — expired seat-holds ko background mein release karta hai
+  cleanup-worker:
+    build: .
+    container_name: movie-cleanup-worker
+
+    depends_on:
+      - postgres
+      - redis
+
+    environment:
+      <<: *app-environment
+
+    command: ["npm", "run", "worker:cleanup"]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cinema-backend
+  namespace: cinema
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cinema-backend
+  template:
+    metadata:
+      labels:
+        app: cinema-backend
+    spec:
+      containers:
+        - name: backend
+          image: leetamcr.azurecr.io/cinema-backend:v2
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 5000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "5000"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgresql:5432/$(POSTGRES_DB)?schema=public"
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: JWT_SECRET
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: JWT_REFRESH_SECRET
+            - name: JWT_EXPIRES_IN
+              value: 15m
+            - name: JWT_REFRESH_EXPIRES_IN
+              value: 7d
+            - name: APP_BASE_URL
+              value: "https://your-frontend-domain.example"
+            - name: CORS_ORIGIN
+              value: "https://your-frontend-domain.example"
+            - name: STRIPE_CURRENCY
+              value: usd
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: STRIPE_SECRET_KEY
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: STRIPE_WEBHOOK_SECRET
+            - name: MAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: MAIL_USER
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: MAIL_PASSWORD
+            - name: MAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: cinema-backend-secret
+                  key: MAIL_FROM
+            - name: MAIL_HOST
+              value: "smtp.example.invalid"
+            - name: MAIL_PORT
+              value: "587"
+            - name: RESERVATION_CLEANUP_INTERVAL_MS
+              value: "60000"
+            - name: TRUST_PROXY_HOPS
+              value: "0"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cinema-backend
+  namespace: cinema
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: cinema-backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 5000
+      targetPort: 5000

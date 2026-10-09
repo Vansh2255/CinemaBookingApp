@@ -1,0 +1,15 @@
+# Build context se in files ko exclude karo — image chhoti + safe rehti hai.
+# Secrets (.env) kabhi image mein nahi jaane chahiye — env vars compose/container
+# runtime ke `environment:` se inject hote hain, image ke andar bake nahi hote.
+
+node_modules
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+.env
+.env.*
+README.md
+tests
+coverage
+*.log

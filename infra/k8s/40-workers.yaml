@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cinema-email-worker
+  namespace: cinema
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cinema-email-worker
+  template:
+    metadata:
+      labels:
+        app: cinema-email-worker
+    spec:
+      containers:
+        - name: email-worker
+          image: leetamcr.azurecr.io/cinema-backend:v2
+          imagePullPolicy: Always
+          command: ["node", "src/workers/email.worker.js"]
+          envFrom:
+            - configMapRef:
+                name: cinema-runtime-config
+            - secretRef:
+                name: cinema-backend-secret
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgresql:5432/$(POSTGRES_DB)?schema=public"
+            - name: REDIS_URL
+              value: redis://redis:6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cinema-cleanup-worker
+  namespace: cinema
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cinema-cleanup-worker
+  template:
+    metadata:
+      labels:
+        app: cinema-cleanup-worker
+    spec:
+      containers:
+        - name: cleanup-worker
+          image: leetamcr.azurecr.io/cinema-backend:v2
+          imagePullPolicy: Always
+          command: ["node", "src/workers/reservation-cleanup.worker.js"]
+          envFrom:
+            - configMapRef:
+                name: cinema-runtime-config
+            - secretRef:
+                name: cinema-backend-secret
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgresql:5432/$(POSTGRES_DB)?schema=public"
+            - name: REDIS_URL
+              value: redis://redis:6379

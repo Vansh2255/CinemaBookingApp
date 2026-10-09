@@ -1,0 +1,120 @@
+name: CI
+
+# Ye workflow har push (main branch) aur har pull request par chalta hai.
+# Kaam: dependencies install → Prisma client generate → poori test suite.
+# Agar koi test fail ho, push block ho jata hai (PR merge nahi hota).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Manual trigger — GitHub UI se "Run workflow" button se bhi chala sakte hain
+  workflow_dispatch:
+
+# Ek hi branch par multiple runs ek saath chale toh purani ko cancel karo
+# (faltu ke duplicate runs se bachne ke liye — resources + time bachta hai)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Node 22 + PostgreSQL)
+    runs-on: ubuntu-latest
+
+    # Service container: GitHub Actions ka "built-in database".
+    # Ye ek alag Docker container mein Postgres chalata hai, jo job ke saath
+    # chalta aur khatam hota hai. Host se `localhost:5432` par reachable hota hai.
+    # (Same as docker-compose, lekin ephemeral — har run fresh instance.)
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # Health check: jab tak Postgres ready nahi hota, test step nahi chalta.
+        # Warna race condition — test DB se connect karne se pehle hi connect fail.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # Job-level env vars — tests ko chahiye hone wale saare config.
+    # NOTE: .env / .env.test gitignore hain (CI mein nahi hote), isliye
+    # globalSetup.js aur setupEnv.js ka dotenv load silently skip ho jata hai
+    # aur values yahan se aati hain.
+    #
+    # Redis deliberately SET NAHI kiya — tests no-op fallback use karte hain
+    # (REDIS_URL undefined → cache disabled). Real Redis service ki zaroorat nahi.
+    env:
+      NODE_ENV: test
+      # DATABASE_URL → test DB. globalSetup.js ise `prisma db push` ke liye use karta hai.
+      # (movie_reservation_test DB globalSetup khud drop+create karta hai)
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/movie_reservation_test?schema=public
+      # DB_* → globalSetup.js "postgres" maintenance DB se connect karke test DB banata hai
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      # Auth tokens
+      JWT_SECRET: test_secret_key_123
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: test_refresh_secret_key_456
+      JWT_REFRESH_EXPIRES_IN: 7d
+      # Stripe dummy keys — stripe.js require hote hi `new Stripe(key)` karta hai,
+      # bina key crash hota hai. (Tests mein Stripe mock hai, real call nahi.)
+      STRIPE_SECRET_KEY: sk_test_dummy
+      STRIPE_WEBHOOK_SECRET: whsec_test_dummy
+      STRIPE_CURRENCY: inr
+      CORS_ORIGIN: "*"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # package-lock.json ke hisaab se node_modules cache karta hai
+          # (baar baar `npm ci` ke bajaye cache se restore — fast)
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Prisma client generate karna ZAROORI hai — globalSetup.js `prisma db push`
+      # `--skip-generate` flag ke saath chalata hai, matlab wo assume karta hai ki
+      # client already generated hai. (npm ci ka postinstall kabhi-kabhi skip ho jata hai)
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run tests
+        run: npm test
+
+  # ---- Docker image build (Dockerfile validation) ----
+  # Ye job tumhare multi-stage production Dockerfile ko build karke verify karta hai.
+  # Sirf build (push nahi) — matlab "kya image ban paati hai ya nahi" check.
+  build:
+    name: Build Docker image (validate Dockerfile)
+    runs-on: ubuntu-latest
+    # Job dependency: build SIRF tab chalta hai jab tests pass ho.
+    # Toota code ka image banana waste hai — pehle green test, phir build.
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Dockerfile build karo (tag: movie-reservation:ci — sirf validation ke liye).
+      # .dockerignore se .env/.git/tests/node_modules exclude hote hain,
+      # isliye koi secret image mein nahi jaata.
+      # NOTE: build ke liye koi env var ki zaroorat nahi — `npm ci` aur
+      # `prisma generate` dono offline/hardcoded hain (DATABASE_URL nahi chahiye).
+      - name: Build image
+        run: docker build -t movie-reservation:ci .

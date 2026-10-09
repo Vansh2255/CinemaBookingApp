@@ -1,0 +1,19 @@
+# Copy to runtime-config.yaml, replace the example values, and apply it.
+# Do not put passwords or tokens in this ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cinema-runtime-config
+  namespace: cinema
+data:
+  NODE_ENV: "production"
+  PORT: "5000"
+  JWT_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  APP_BASE_URL: "https://your-frontend-domain.example"
+  CORS_ORIGIN: "https://your-frontend-domain.example"
+  STRIPE_CURRENCY: "usd"
+  MAIL_HOST: "smtp.example.invalid"
+  MAIL_PORT: "587"
+  RESERVATION_CLEANUP_INTERVAL_MS: "60000"
+  TRUST_PROXY_HOPS: "0"
